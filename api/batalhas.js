@@ -11,7 +11,7 @@
   - American Civil War Battle Data: engajamentos com navios (arquivo _acw.json).
   - MAREA Scale Models, registro pós-1945 (arquivo _marea.json, localizado via Wikipedia).
 
-  /api/batalhas?debug=1 mostra contagens, tempos e erros por fonte.
+  /api/batalhas?debug=1 mostra contagens, tempos e fontes com falha.
 */
 const fs = require("fs");
 const path = require("path");
@@ -25,7 +25,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function getJSON(url, opts = {}, tries = 2){
   for(let i = 0; i < tries; i++){
     try{
-      const r = await fetch(url, { ...opts, headers: { "User-Agent": UA, Accept: "application/json", ...(opts.headers || {}) } });
+      const r = await fetch(url, { signal: AbortSignal.timeout(15000), ...opts, headers: { "User-Agent": UA, Accept: "application/json", ...(opts.headers || {}) } });
       if(r.status === 429 || r.status >= 500){ await sleep(800 * (i + 1)); continue; }
       if(!r.ok) throw new Error(`HTTP ${r.status} em ${url.slice(0, 80)}`);
       return await r.json();
@@ -34,12 +34,12 @@ async function getJSON(url, opts = {}, tries = 2){
   throw new Error("Falha ao buscar " + url.slice(0, 80));
 }
 async function getText(url){
-  const r = await fetch(url, { headers: { "User-Agent": UA } });
+  const r = await fetch(url, { signal: AbortSignal.timeout(15000), headers: { "User-Agent": UA } });
   if(!r.ok) throw new Error(`HTTP ${r.status} em ${url.slice(0, 80)}`);
   return await r.text();
 }
 async function sparql(q){
-  const r = await fetch(WD, { method: "POST", headers: { "User-Agent": UA, Accept: "application/sparql-results+json", "Content-Type": "application/x-www-form-urlencoded" }, body: "query=" + encodeURIComponent(q) });
+  const r = await fetch(WD, { signal: AbortSignal.timeout(15000), method: "POST", headers: { "User-Agent": UA, Accept: "application/sparql-results+json", "Content-Type": "application/x-www-form-urlencoded" }, body: "query=" + encodeURIComponent(q) });
   if(!r.ok) throw new Error("Wikidata HTTP " + r.status);
   return (await r.json()).results.bindings;
 }
@@ -285,20 +285,43 @@ async function finalize(){
   return { items, stats, errors, dbg, ms: Date.now() - t0 };
 }
 
+let pending = null;
+async function getSnapshot() {
+  if (memo && Date.now() - memo.at <= 6 * 3600e3) return memo;
+  if (!pending) {
+    pending = finalize()
+      .then(data => (memo = { at: Date.now(), data }))
+      .finally(() => { pending = null; });
+  }
+  return pending;
+}
+
 module.exports = async (req, res) => {
-  const debug = req.query && (req.query.debug === "1");
-  try{
-    if(!memo || Date.now() - memo.at > 6 * 3600e3 || debug) memo = { at: Date.now(), data: await finalize() };
-    const d = memo.data;
-    res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.setHeader("Allow", "GET, HEAD");
+    return res.status(405).json({ erro: "Método não permitido." });
+  }
+
+  const debug = req.query && req.query.debug === "1";
+  try {
+    const { at, data } = await getSnapshot();
     res.setHeader("Access-Control-Allow-Origin", "*");
-    if(debug){
-      const bySrc = {}; d.items.forEach(x => x.src.forEach(s => bySrc[s] = (bySrc[s] || 0) + 1));
+    if (debug) {
+      const porFonte = {};
+      data.items.forEach(item => item.src.forEach(source => {
+        porFonte[source] = (porFonte[source] || 0) + 1;
+      }));
       res.setHeader("Cache-Control", "no-store");
-      return res.status(200).json({ total: d.items.length, porFonte: bySrc, coletado: d.stats, erros: d.errors, extra: d.dbg, ms: d.ms, amostra: d.items.filter((_, i) => i % 200 === 0).slice(0, 12) });
+      return res.status(200).json({
+        total: data.items.length, porFonte, coletado: data.stats,
+        fontesComFalha: Object.keys(data.errors), ms: data.ms,
+      });
     }
-    res.status(200).json({ geradoEm: new Date(memo.at).toISOString(), total: d.items.length, items: d.items });
-  }catch(e){
-    res.status(500).json({ erro: String(e.message || e) });
+    res.setHeader("Cache-Control", "public, s-maxage=86400, stale-while-revalidate=604800");
+    return res.status(200).json({ geradoEm: new Date(at).toISOString(), total: data.items.length, items: data.items });
+  } catch (error) {
+    console.error("Falha ao gerar catálogo naval", error.name);
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(500).json({ erro: "Não foi possível gerar o catálogo." });
   }
 };

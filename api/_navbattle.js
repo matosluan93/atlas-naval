@@ -23,7 +23,7 @@ module.exports = async function fromNavbattle(dbg, { getJSON, parseDate, UA }){
   const files = (((meta.data || {}).latestVersion || {}).files || []).map(f => ({ id: f.dataFile.id, name: f.dataFile.filename || f.label }));
   const pick = files.find(f => /^navbattle\.xlsx$/i.test(f.name)) || files.find(f => /navbattle/i.test(f.name) && /\.xlsx$/i.test(f.name) && !/formula/i.test(f.name));
   if(!pick) throw new Error("Planilha NAVBATTLE não encontrada");
-  const r = await fetch(`https://dataverse.harvard.edu/api/access/datafile/${pick.id}`, { headers: { "User-Agent": UA } });
+  const r = await fetch(`https://dataverse.harvard.edu/api/access/datafile/${pick.id}`, { signal: AbortSignal.timeout(20000), headers: { "User-Agent": UA } });
   if(!r.ok) throw new Error("NAVBATTLE HTTP " + r.status);
   const wb = XLSX.read(Buffer.from(await r.arrayBuffer()), { type: "buffer", cellDates: true });
   const sheets = wb.SheetNames.map(n => ({ n, head: ((XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, blankrows: false })[0]) || []).map(h => String(h ?? "").trim()) }));
