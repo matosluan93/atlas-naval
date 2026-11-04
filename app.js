@@ -4,6 +4,15 @@ const CFG = window.APP_CONFIG || {};
 const CURADAS = window.CURADAS || [];
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const httpsUrl = value => {
+  if (typeof value !== "string") return "";
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password ? url.href : "";
+  } catch {
+    return "";
+  }
+};
 const PHASE_S = 10;          // segundos de simulação por fase
 const R_EARTH = 6371000;
 const HOME_H = () => (innerWidth < 600 ? 1.45e7 : 2.2e7);
@@ -427,7 +436,7 @@ function openTrain(){
 
 /* ---------- painel ---------- */
 function rowsCurated(){
-  return CURADAS.filter(curVisible).map(b => `<li><button data-cur="${b.id}"><span class="y">${esc(yearLabel(b.year))}</span><span class="n"><strong>${esc(b.name)}</strong><span>${esc(b.conflict)}</span></span><span>${progress[b.id] != null ? `<span class="done">${progress[b.id]}/${b.quiz.length}</span>` : `<span class="badge">Estudo</span>`}</span></button></li>`).join("");
+  return CURADAS.filter(curVisible).map(b => `<li><button data-cur="${esc(b.id)}"><span class="y">${esc(yearLabel(b.year))}</span><span class="n"><strong>${esc(b.name)}</strong><span>${esc(b.conflict)}</span></span><span>${progress[b.id] != null ? `<span class="done">${progress[b.id]}/${b.quiz.length}</span>` : `<span class="badge">Estudo</span>`}</span></button></li>`).join("");
 }
 function renderAside(){
   const A = $("#aside");
@@ -442,7 +451,7 @@ function renderAside(){
       <div class="stats"><div class="stat"><b>${(state.all.length + CURADAS.length).toLocaleString("pt-BR")}</b><span>no globo</span></div><div class="stat"><b>${CURADAS.length}</b><span>estudo completo</span></div><div class="stat"><b>${brCount}</b><span>com o Brasil</span></div></div>
       ${cur.length ? `<div class="sec">Estudo completo · ${cur.length}</div><ul class="results">${rowsCurated()}</ul>` : ""}
       ${state.loaded ? `<div class="sec">Ficha com resumo · ${auto.length.toLocaleString("pt-BR")}</div>
-      <ul class="results">${auto.slice(0, LIM).map(it => `<li><button data-auto="${it.qid}"><span class="y">${esc(yearLabel(it.year))}</span><span class="n"><strong>${esc(it.name)}</strong>${it.conf ? `<span>${esc(it.conf)}</span>` : ""}</span><span class="badge auto">Ficha</span></button></li>`).join("")}</ul>
+      <ul class="results">${auto.slice(0, LIM).map(it => `<li><button data-auto="${esc(it.qid)}"><span class="y">${esc(yearLabel(it.year))}</span><span class="n"><strong>${esc(it.name)}</strong>${it.conf ? `<span>${esc(it.conf)}</span>` : ""}</span><span class="badge auto">Ficha</span></button></li>`).join("")}</ul>
       ${auto.length > LIM ? `<p class="note">Mostrando ${LIM} de ${auto.length.toLocaleString("pt-BR")}. Use a busca ou a época para encontrar as demais; todas estão no globo.</p>` : ""}` : `<p class="note">Carregando a lista completa…</p>`}
       <p class="note">Fontes: Wikidata (CC0), Wikipedia (CC BY-SA), The War Atlas (CC BY 4.0, thewaratlas.co), NAVBATTLE (Harvard Dataverse), American Civil War Battle Data e registro MAREA pós-1945. Imagem de satélite: Esri World Imagery. Números de forças e perdas variam entre fontes e aparecem como aproximados.</p>
     </div>`;
@@ -452,23 +461,24 @@ function renderAside(){
   }
   if(state.mode === "auto"){
     const it = state.auto, w = wikiCache[it.qid];
+    const wikiUrl = httpsUrl(w?.url), wikiImage = httpsUrl(w?.img), atlasUrl = httpsUrl(it.atlas);
     A.innerHTML = `<div class="ahead"><button class="back" id="back">← Todas</button><span class="badge auto">Ficha</span></div>
     <div class="body">
       <h2>${esc(it.name)}</h2>
       <p class="sub">${it.conf ? esc(it.conf) : it.desc ? esc(it.desc) : "Batalha naval"}</p>
-      ${w && w.img ? `<img class="thumb" src="${esc(w.img)}" alt="">` : ""}
+      ${wikiImage ? `<img class="thumb" src="${esc(wikiImage)}" alt="">` : ""}
       <dl class="facts"><dt>Data</dt><dd class="mono">${esc(it.date || yearLabel(it.year))}</dd>
         <dt>Local</dt><dd>${it.place ? esc(it.place) + "<br>" : ""}<span class="mono">${coord(it.lat, it.lng)}</span></dd>
         ${it.result ? `<dt>Resultado</dt><dd>${esc(it.result)}</dd>` : ""}
         ${it.br ? `<dt>Brasil</dt><dd>Participação brasileira registrada</dd>` : ""}
-        ${it.sides ? it.sides.map((s, k) => `<dt>${k ? "Lado B" : "Lado A"}</dt><dd><span class="sq" style="background:${k ? COL.b : COL.a}"></span><strong>${esc(s.name)}</strong>${s.cmd ? `<br>Comando: ${esc(s.cmd)}` : ""}${s.ships != null ? `<br>Navios: ${s.ships}` : ""}${s.lost != null ? ` · perdidos: ${s.lost}` : ""}${s.fat != null ? `<br>Mortos: ${s.fat.toLocaleString("pt-BR")}` : ""}${s.cas != null ? ` · baixas: ${s.cas.toLocaleString("pt-BR")}` : ""}</dd>`).join("") : ""}
+        ${it.sides ? it.sides.map((s, k) => `<dt>${k ? "Lado B" : "Lado A"}</dt><dd><span class="sq" style="background:${k ? COL.b : COL.a}"></span><strong>${esc(s.name)}</strong>${s.cmd ? `<br>Comando: ${esc(s.cmd)}` : ""}${s.ships != null ? `<br>Navios: ${esc(s.ships)}` : ""}${s.lost != null ? ` · perdidos: ${esc(s.lost)}` : ""}${s.fat != null ? `<br>Mortos: ${esc(s.fat.toLocaleString("pt-BR"))}` : ""}${s.cas != null ? ` · baixas: ${esc(s.cas.toLocaleString("pt-BR"))}` : ""}</dd>`).join("") : ""}
         ${it.ships ? `<dt>Navios</dt><dd><span class="sq" style="background:${COL.a}"></span>União: ${esc((it.ships.us || []).join(", ") || "—")}<br><span class="sq" style="background:${COL.b}"></span>Confederação: ${esc((it.ships.cs || []).join(", ") || "—")}</dd>` : ""}
         ${it.forces ? `<dt>Forças</dt><dd>${esc(it.forces)}</dd>` : ""}
         ${it.cas ? `<dt>Baixas</dt><dd>${esc(it.cas)}</dd>` : ""}
         ${it.summary ? `<dt>Síntese</dt><dd>${esc(it.summary)}</dd>` : ""}
         <dt>Fontes</dt><dd>${(it.src || ["wikidata"]).map(s => esc(SRC_NAMES[s] || s)).join(" · ")}</dd></dl>
       <div style="margin-top:14px">${w === undefined ? `<p class="sub">Carregando resumo da Wikipedia…</p>` : w && w.extract ? `<p>${esc(w.extract)}</p>${w.lang === "en" ? `<p class="note">Resumo disponível apenas em inglês.</p>` : ""}` : `<p class="sub">Sem resumo disponível para esta batalha.</p>`}</div>
-      <div class="row-actions">${w && w.url ? `<a class="btn ghost" href="${esc(w.url)}" target="_blank" rel="noopener">Ler na Wikipedia</a>` : ""}${it.real !== false && /^Q\d+$/.test(it.qid) ? `<a class="btn ghost" href="https://www.wikidata.org/wiki/${esc(it.qid)}" target="_blank" rel="noopener">Dados na Wikidata</a>` : ""}${it.atlas ? `<a class="btn ghost" href="${esc(it.atlas)}" target="_blank" rel="noopener">The War Atlas</a>` : ""}<button class="btn" id="to-train">Treinar</button></div>
+      <div class="row-actions">${wikiUrl ? `<a class="btn ghost" href="${esc(wikiUrl)}" target="_blank" rel="noopener">Ler na Wikipedia</a>` : ""}${it.real !== false && /^Q\d+$/.test(it.qid) ? `<a class="btn ghost" href="https://www.wikidata.org/wiki/${esc(it.qid)}" target="_blank" rel="noopener">Dados na Wikidata</a>` : ""}${atlasUrl ? `<a class="btn ghost" href="${esc(atlasUrl)}" target="_blank" rel="noopener">The War Atlas</a>` : ""}<button class="btn" id="to-train">Treinar</button></div>
       <p class="note">Esta batalha ainda não tem animação tática. As batalhas em dourado no globo têm o estudo completo.</p>
     </div>`;
     $("#back").onclick = goHome; $("#to-train").onclick = openTrain;
